@@ -3,42 +3,44 @@ package models
 import "time"
 
 type History struct {
-	id int
+	Id int `json:"-"`
 }
 
 type Person struct {
-	name       string
-	surname    string
-	fathername string
-	bioInfo    string
+	Name       string `json:"name"`
+	Surname    string `json:"surname"`
+	Fathername string `json:"fathername"`
+	BioInfo    string `json:"bioInfo"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
 }
 
 type Owner struct {
-	per  Person
-	hist []History
+	Per  Person    `json:"person"`
+	Hist []History `json:"history"`
 }
 
 type StatisticMeasure struct {
-	id          int
-	name        string
-	description string
-	startPeriod time.Time
-	endPeriod   time.Time
-	value       float32
+	Id          int       `json:"-"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	StartPeriod time.Time `json:"startPeriod"`
+	EndPeriod   time.Time `json:"endPeriod"`
+	Value       float32   `json:"value"`
 }
 
 type Price struct {
-	id       int
-	lowEnd   int
-	highEnd  int
-	currency string
+	Id       int    `json:"-"`
+	LowEnd   int    `json:"lowEnd"`
+	HighEnd  int    `json:"highEnd"`
+	Currency string `json:"currency"`
 }
 
 type Product struct {
-	id          int
-	name        string
-	description string
-	price       Price
+	Id          int    `json:"-"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Price       Price  `json:"price"`
 }
 
 type ContactType int
@@ -58,13 +60,13 @@ type Contact struct {
 }
 
 type Brand struct {
-	id          int
-	name        string
-	description string
-	location    string
-	isOpen      bool
-	owners      []Owner
-	contacts    []Contact
-	statistics  []StatisticMeasure
-	products    []Product
+	Id          int                `json:"-"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Location    string             `json:"location"`
+	IsOpen      bool               `json:"-"`
+	Owners      []Owner            `json:"owners"`
+	Contacts    []Contact          `json:"contacts"`
+	Statistics  []StatisticMeasure `json:"statistics"`
+	Products    []Product          `json:"products"`
 }

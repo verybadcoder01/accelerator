@@ -8,11 +8,14 @@ import (
 )
 
 type Config struct {
-	DbPath        string `yaml:"db_path"`
-	LogPath       string `yaml:"log_path"`
-	LogLevel      string `yaml:"log_level"`
-	SessionLenSec int64  `yaml:"session_len"`
-	Port          string `yaml:"port"`
+	DbPath          string `yaml:"db_path"`
+	LogPath         string `yaml:"log_path"`
+	LogLevel        string `yaml:"log_level"`
+	SessionLenSec   int64  `yaml:"session_len"`
+	Port            string `yaml:"port"`
+	SessionCashPath string `yaml:"session_cash_path"`
+	CashUser        string `yaml:"cash_user"`
+	CashPassword    string `yaml:"cash_password"`
 }
 
 func ParseConfig(path string) (Config, error) {

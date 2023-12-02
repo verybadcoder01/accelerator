@@ -63,7 +63,7 @@ func (l Level) LogLevel() log.Level {
 
 func SetupLogging(file string, level string) *log.Logger {
 	l := NewLevel(level)
-	f, _ := os.Open(file)
+	f, _ := os.OpenFile(file, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0666)
 	return &log.Logger{
 		Out: f, Level: l.LogLevel(),
 		Formatter: &log.TextFormatter{DisableColors: true, FullTimestamp: true, PadLevelText: true},

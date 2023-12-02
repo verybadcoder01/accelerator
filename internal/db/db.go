@@ -6,6 +6,7 @@ import (
 	"accelerator/models"
 	_ "github.com/lib/pq"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Database struct {
@@ -30,7 +31,7 @@ func (d *Database) CreateTables() error {
 	createContacts := `CREATE TABLE IF NOT EXISTS Contacts(id SERIAL PRIMARY KEY, type VARCHAR(20), contact VARCHAR(100))`
 	createLinkCBrand := `CREATE TABLE IF NOT EXISTS L_Brand_Contacts(id SERIAL PRIMARY KEY, brand_id INT, contact_id INT, CONSTRAINT fk_link_contacts FOREIGN KEY(brand_id) REFERENCES Brands(id) ON DELETE CASCADE, CONSTRAINT fk_contact_id FOREIGN KEY(contact_id) REFERENCES Contacts(id) ON DELETE CASCADE)`
 	createHistory := `CREATE TABLE IF NOT EXISTS History(id SERIAL PRIMARY KEY)` // TBD LATER
-	createOwners := `CREATE TABLE IF NOT EXISTS Owners(id SERIAL PRIMARY KEY, name VARCHAR(20), surname VARCHAR(50), fathername VARCHAR(50), bio_info VARCHAR(200), history_id INT, CONSTRAINT fk_history_id FOREIGN KEY (history_id) REFERENCES History(id))`
+	createOwners := `CREATE TABLE IF NOT EXISTS Owners(id SERIAL PRIMARY KEY, name VARCHAR(20), surname VARCHAR(50), fathername VARCHAR(50), bio_info VARCHAR(200), email VARCHAR(50), password VARCHAR(100), history_id INT, CONSTRAINT fk_history_id FOREIGN KEY (history_id) REFERENCES History(id))`
 	createLOBrand := `CREATE TABLE IF NOT EXISTS L_Brand_Owners(id SERIAL PRIMARY KEY, brand_id INT, owner_id INT, CONSTRAINT fk_link_owners FOREIGN KEY(brand_id) REFERENCES Brands(id) ON DELETE CASCADE, CONSTRAINT fk_owner_id FOREIGN KEY(owner_id) REFERENCES Owners(id) ON DELETE CASCADE)`
 	execList := []string{
 		createBrand, createStats, createPrices, createProducts, createContacts, createLinkCBrand, createHistory,
@@ -48,7 +49,7 @@ func (d *Database) CreateTables() error {
 
 func (d *Database) getBrandOwners(brandId int) ([]models.Owner, error) {
 	getOwnerIds := `SELECT owner_id FROM l_brand_owners WHERE brand_id = ?`
-	getOwnerById := `SELECT (name, surname, fathername, bio_info) FROM owners WHERE id = ?`
+	getOwnerById := `SELECT (name, surname, fathername, bio_info) FROM owners WHERE id = ?` // email is not meant to be publicly visible
 	rows, err := d.db.Query(getOwnerIds, brandId)
 	if err != nil {
 		return nil, err
@@ -195,4 +196,14 @@ func (d *Database) GetOpenBrands() ([]models.Brand, error) {
 		}
 	}
 	return open, nil
+}
+
+func (d *Database) InsertOwner(o models.Owner) error {
+	insertOwner := `INSERT INTO owners (name, surname, fathername, bio_info, email, password) VALUES ($1, $2, $3, $4, $5, $6)`
+	passwd, err := bcrypt.GenerateFromPassword([]byte(o.Per.Password), 17)
+	if err != nil {
+		return err
+	}
+	_, err = d.db.Query(insertOwner, o.Per.Name, o.Per.Surname, o.Per.Fathername, o.Per.BioInfo, o.Per.Email, "'"+string(passwd)+"'")
+	return err
 }

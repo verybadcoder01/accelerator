@@ -3,7 +3,7 @@ package models
 import "strings"
 
 func NewOwner(per *Person) Owner {
-	return Owner{per: *per, hist: []History{}}
+	return Owner{Per: *per, Hist: []History{}}
 }
 
 func NewContactType(s string) ContactType {
@@ -30,34 +30,34 @@ func NewContact(typeof string, link string) Contact {
 }
 
 func (b *Brand) GetId() int {
-	return b.id
+	return b.Id
 }
 
 func (b *Brand) AppendProduct(p ...Product) {
-	b.products = append(b.products, p...)
+	b.Products = append(b.Products, p...)
 }
 
 func (b *Brand) AppendOwner(o ...Owner) {
-	b.owners = append(b.owners, o...)
+	b.Owners = append(b.Owners, o...)
 }
 
 func (b *Brand) AppendStat(s ...StatisticMeasure) {
-	b.statistics = append(b.statistics, s...)
+	b.Statistics = append(b.Statistics, s...)
 }
 func (b *Brand) AppendContact(c ...Contact) {
-	b.contacts = append(b.contacts, c...)
+	b.Contacts = append(b.Contacts, c...)
 }
 
 func (p *Product) GetPrice() Price {
-	return p.price
+	return p.Price
 }
 
 func (p *Product) SetPrice(pr *Price) {
-	p.price = *pr
+	p.Price = *pr
 }
 
 func (o *Owner) SetPersonData(pr *Person) {
-	o.per = *pr
+	o.Per = *pr
 }
 
 func (c ContactType) String() string {

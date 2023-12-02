@@ -1,0 +1,33 @@
+version: '2'
+
+services:
+  tarantool1:
+    image: tarantool/tarantool:2.11
+    env_file:
+      - .env
+    networks:
+      - mynet
+    volumes:
+      - ./configuration.lua:/usr/share/tarantool/configuration.lua
+      - ./app.lua:/etc/tarantool/instances.enabled/app.lua
+      - ./data:/opt/tarantool
+    command: "tarantool /etc/tarantool/instances.enabled/app.lua"
+    ports:
+      - "3301:3301"
+
+  tarantool2:
+    image: tarantool/tarantool:2.11
+    env_file:
+      - .env
+    networks:
+      - mynet
+    volumes:
+      - ./configuration.lua:/usr/share/tarantool/configuration.lua
+      - ./app.lua:/etc/tarantool/instances.enabled/app.lua
+      - ./data:/opt/tarantool
+    ports:
+      - "3302:3301"
+
+networks:
+  mynet:
+    driver: bridge

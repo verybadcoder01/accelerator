@@ -3,3 +3,6 @@ log_path: "log.txt"
 log_level: "info"
 session_len: 60
 port: ":5757"
+session_cash_path: "localhost:3301"
+cash_user: "user"
+cash_password: "password"

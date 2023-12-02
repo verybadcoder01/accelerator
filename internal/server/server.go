@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"accelerator/internal/db"
+	"accelerator/internal/sessioncash"
 	"github.com/gofiber/fiber/v2"
 	log "github.com/sirupsen/logrus"
 )
@@ -13,14 +14,11 @@ type Server struct {
 	log        *log.Logger
 	sessionLen time.Duration
 	db         *db.Database
+	scash      *sessioncash.CashDb
 }
 
-func NewServer(db *db.Database, log *log.Logger, slensec int64) Server {
-	return Server{conn: fiber.New(), log: log, sessionLen: time.Duration(slensec) * time.Second, db: db}
-}
-
-func (s *Server) SetupRouting() {
-	setupRouting(s.conn)
+func NewServer(db *db.Database, cash *sessioncash.CashDb, log *log.Logger, slensec int64) Server {
+	return Server{conn: fiber.New(), log: log, sessionLen: time.Duration(slensec) * time.Second, db: db, scash: cash}
 }
 
 func (s *Server) ListenAndServe(port string) error {
