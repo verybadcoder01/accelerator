@@ -1,0 +1,6 @@
+*.exe
+*.dll
+*.db
+*.txt
+*.idea
+main

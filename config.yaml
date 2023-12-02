@@ -1,0 +1,5 @@
+db_path: "postgres://postgres:example@localhost:5432/accelerator?sslmode=disable"
+log_path: "log.txt"
+log_level: "info"
+session_len: 60
+port: ":5757"
