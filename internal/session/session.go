@@ -6,9 +6,13 @@ import (
 	"github.com/google/uuid"
 )
 
+type JustToken struct { // I just sometimes need only this and I don't want to use map[string]string
+	Token string `json:"token"`
+}
+
 type Session struct {
-	Token   string
-	ExpTime time.Time
+	Token   string    `json:"token"`
+	ExpTime time.Time `json:"-"`
 }
 
 func NewSession(expTime time.Time) Session {

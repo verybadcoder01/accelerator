@@ -29,7 +29,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	s := server.NewServer(&dconn, &cashDb, logger, conf.SessionLenSec)
+	s := server.NewServer(&dconn, cashDb, logger, conf.SessionLenSec)
 	s.SetupRouting()
 	err = s.ListenAndServe(conf.Port)
 	if err != nil {

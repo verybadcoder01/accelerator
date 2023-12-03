@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"strings"
 
 	"accelerator/models"
 	_ "github.com/lib/pq"
@@ -48,8 +49,8 @@ func (d *Database) CreateTables() error {
 }
 
 func (d *Database) getBrandOwners(brandId int) ([]models.Owner, error) {
-	getOwnerIds := `SELECT owner_id FROM l_brand_owners WHERE brand_id = ?`
-	getOwnerById := `SELECT (name, surname, fathername, bio_info) FROM owners WHERE id = ?` // email is not meant to be publicly visible
+	getOwnerIds := `SELECT owner_id FROM l_brand_owners WHERE brand_id = $1`
+	getOwnerById := `SELECT (name, surname, fathername, bio_info) FROM owners WHERE id = $1` // email is not meant to be publicly visible
 	rows, err := d.db.Query(getOwnerIds, brandId)
 	if err != nil {
 		return nil, err
@@ -86,8 +87,8 @@ func (d *Database) getBrandOwners(brandId int) ([]models.Owner, error) {
 }
 
 func (d *Database) getBrandContacts(brandId int) ([]models.Contact, error) {
-	getContactIds := `SELECT contact_id FROM l_brand_contacts WHERE brand_id = ?`
-	getContactById := `SELECT (type, contact) FROM contacts WHERE id = ?`
+	getContactIds := `SELECT contact_id FROM l_brand_contacts WHERE brand_id = $1`
+	getContactById := `SELECT (type, contact) FROM contacts WHERE id = $1`
 	rows, err := d.db.Query(getContactIds, brandId)
 	if err != nil {
 		return nil, err
@@ -143,8 +144,8 @@ func (d *Database) GetOpenBrands() ([]models.Brand, error) {
 	if err != nil {
 		return nil, err
 	}
-	getProducts := `SELECT (id, name, description, price_id) FROM products WHERE brand_id = ?`
-	getStats := `SELECT (id, name, description, start_time, end_time, value) FROM statistics WHERE brand_id = ?`
+	getProducts := `SELECT (id, name, description, price_id) FROM products WHERE brand_id = $1`
+	getStats := `SELECT (id, name, description, start_time, end_time, value) FROM statistics WHERE brand_id = $1`
 	for i, brand := range open {
 		// search for products
 		rows, err = d.db.Query(getProducts, brand.GetId())
@@ -206,4 +207,28 @@ func (d *Database) InsertOwner(o models.Owner) error {
 	}
 	_, err = d.db.Query(insertOwner, o.Per.Name, o.Per.Surname, o.Per.Fathername, o.Per.BioInfo, o.Per.Email, "'"+string(passwd)+"'")
 	return err
+}
+
+func (d *Database) GetPasswordByEmail(mail string) (string, error) {
+	getPassword := `SELECT password FROM owners WHERE email = $1`
+	rows, err := d.db.Query(getPassword, mail)
+	if err != nil {
+		return "", err
+	}
+	var passwd string
+	for rows.Next() {
+		err = rows.Scan(&passwd)
+		if err != nil {
+			return "", err
+		}
+	}
+	err = rows.Close()
+	if err != nil {
+		return "", err
+	}
+	if passwd == "" {
+		return "", nil
+	}
+	parts := strings.Split(passwd, "'") // password is stored as 'hash', because hash can contain random symbols like / or $
+	return parts[1], nil
 }

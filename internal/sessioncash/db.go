@@ -41,21 +41,24 @@ func (t *TarantoolCashDb) StoreSession(s *session.Session) error {
 		return err
 	}
 	toinsert := SessionSerialized{Token: s.Token, ExpTime: dt}
-	_, err = t.conn.Do(tarantool.NewInsertRequest(t.space.Id).Tuple(toinsert)).Get()
+	_, err = t.conn.Do(tarantool.NewInsertRequest(t.space.Name).Tuple(toinsert)).Get()
 	return err
 }
 
 func (t *TarantoolCashDb) FindSession(token string) (session.Session, error) {
-	resp, err := t.conn.Do(tarantool.NewSelectRequest(t.space.Id).Key(token)).Get()
-	if err != nil {
+	const index = "primary"
+	resp, err := t.conn.Do(tarantool.NewSelectRequest(t.space.Name).Index(index).Iterator(tarantool.IterEq).Key(tarantool.StringKey{S: token})).Get()
+	if err != nil || len(resp.Data) < 1 || len(resp.Data[0].([]interface{})) < 2 {
 		return session.Session{}, err
 	}
-	d := resp.Data[1].(datetime.Datetime)
-	res := session.Session{Token: resp.Data[0].(string), ExpTime: d.ToTime()}
+	values := resp.Data[0].([]interface{})
+	d := values[1].(datetime.Datetime)
+	res := session.Session{Token: values[0].(string), ExpTime: d.ToTime()}
 	return res, nil
 }
 
 func (t *TarantoolCashDb) DeleteSession(token string) error {
-	_, err := t.conn.Do(tarantool.NewDeleteRequest(t.space.Id).Key(token)).Get()
+	const index = "primary"
+	_, err := t.conn.Do(tarantool.NewDeleteRequest(t.space.Name).Index(index).Key(tarantool.StringKey{S: token})).Get()
 	return err
 }

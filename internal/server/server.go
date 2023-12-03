@@ -14,10 +14,10 @@ type Server struct {
 	log        *log.Logger
 	sessionLen time.Duration
 	db         *db.Database
-	scash      *sessioncash.CashDb
+	scash      sessioncash.CashDb
 }
 
-func NewServer(db *db.Database, cash *sessioncash.CashDb, log *log.Logger, slensec int64) Server {
+func NewServer(db *db.Database, cash sessioncash.CashDb, log *log.Logger, slensec int64) Server {
 	return Server{conn: fiber.New(), log: log, sessionLen: time.Duration(slensec) * time.Second, db: db, scash: cash}
 }
 
