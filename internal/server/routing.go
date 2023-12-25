@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -39,14 +40,13 @@ func (s *Server) SetupRouting() {
 		return c.Send(marshal)
 	})
 	s.conn.Post("/api/users/register", func(c *fiber.Ctx) error {
-		var req models.Person
+		var req models.User
 		err := json.Unmarshal(c.Body(), &req)
 		if err != nil {
 			s.log.Errorln(err)
 			return c.SendStatus(http.StatusBadRequest)
 		}
-		owner := models.NewOwner(&req)
-		err = s.db.InsertOwner(owner)
+		err = s.db.CreateUser(req)
 		if err != nil {
 			s.log.Errorln(err)
 			return c.SendStatus(http.StatusInternalServerError)
@@ -69,7 +69,7 @@ func (s *Server) SetupRouting() {
 		if isGood != nil {
 			return c.SendStatus(http.StatusForbidden)
 		}
-		newsession := session.NewSession(time.Now().Add(s.sessionLen))
+		newsession := session.NewSession(time.Now().Add(s.sessionLen), req.Email)
 		// apparently tarantool hates "local" timezones, so we'll just make everything the same - no timezone
 		newsession.ExpTime = newsession.ExpTime.In(time.FixedZone(datetime.NoTimezone, 0))
 		err = s.scash.StoreSession(&newsession)
@@ -91,19 +91,51 @@ func (s *Server) SetupRouting() {
 			s.log.Errorln(err)
 			return c.SendStatus(http.StatusBadRequest)
 		}
-		ses, err := s.scash.FindSession(req.Token)
-		if err != nil {
+		status, err := s.isSessionActive(req.Token)
+		switch status {
+		case NOTFOUND:
 			s.log.Errorln(err)
-			return c.SendStatus(http.StatusInternalServerError)
-		}
-		empty := session.Session{}
-		if ses == empty || ses.IsExpired() {
+			return c.SendStatus(http.StatusBadRequest)
+		case EXPIRED:
 			err = s.scash.DeleteSession(req.Token)
 			if err != nil {
 				s.log.Errorln(err)
 			}
 			return c.SendString("false")
+		default:
+			return c.SendString("true")
 		}
-		return c.SendString("true")
+	})
+	s.conn.Post("/api/users/brands/add", func(c *fiber.Ctx) error {
+		var req models.Brand
+		err := json.Unmarshal(c.Body(), &req)
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusBadRequest)
+		}
+		stoken, ok := c.GetReqHeaders()["Authorization"]
+		if ok != true {
+			return c.SendStatus(http.StatusBadRequest)
+		}
+		status, err := s.isSessionActive(stoken[0])
+		switch status {
+		case NOTFOUND:
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusBadRequest)
+		case EXPIRED:
+			err = s.scash.DeleteSession(stoken[0])
+			if err != nil {
+				s.log.Errorln(err)
+			}
+			return c.SendStatus(http.StatusForbidden)
+		}
+		req.IsOpen = true
+		ctx := context.Background()
+		err = s.db.AddBrand(ctx, &req)
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		return c.SendStatus(http.StatusOK)
 	})
 }

@@ -18,6 +18,7 @@ type SessionSerialized struct {
 	_msgpack struct{} `msgpack:",asArray"`
 	Token    string
 	ExpTime  datetime.Datetime
+	Email    string
 }
 
 type TarantoolCashDb struct {
@@ -40,7 +41,7 @@ func (t *TarantoolCashDb) StoreSession(s *session.Session) error {
 	if err != nil {
 		return err
 	}
-	toinsert := SessionSerialized{Token: s.Token, ExpTime: dt}
+	toinsert := SessionSerialized{Token: s.Token, ExpTime: dt, Email: s.Email}
 	_, err = t.conn.Do(tarantool.NewInsertRequest(t.space.Name).Tuple(toinsert)).Get()
 	return err
 }
@@ -48,12 +49,12 @@ func (t *TarantoolCashDb) StoreSession(s *session.Session) error {
 func (t *TarantoolCashDb) FindSession(token string) (session.Session, error) {
 	const index = "primary"
 	resp, err := t.conn.Do(tarantool.NewSelectRequest(t.space.Name).Index(index).Iterator(tarantool.IterEq).Key(tarantool.StringKey{S: token})).Get()
-	if err != nil || len(resp.Data) < 1 || len(resp.Data[0].([]interface{})) < 2 {
+	if err != nil || len(resp.Data) < 1 || len(resp.Data[0].([]interface{})) < 3 {
 		return session.Session{}, err
 	}
 	values := resp.Data[0].([]interface{})
 	d := values[1].(datetime.Datetime)
-	res := session.Session{Token: values[0].(string), ExpTime: d.ToTime()}
+	res := session.Session{Token: values[0].(string), ExpTime: d.ToTime(), Email: values[2].(string)}
 	return res, nil
 }
 

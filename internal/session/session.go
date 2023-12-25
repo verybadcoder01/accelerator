@@ -13,10 +13,11 @@ type JustToken struct { // I just sometimes need only this and I don't want to u
 type Session struct {
 	Token   string    `json:"token"`
 	ExpTime time.Time `json:"-"`
+	Email   string    `json:"-"`
 }
 
-func NewSession(expTime time.Time) Session {
-	return Session{Token: uuid.New().String(), ExpTime: expTime}
+func NewSession(expTime time.Time, email string) Session {
+	return Session{Token: uuid.New().String(), ExpTime: expTime, Email: email}
 }
 
 func (s *Session) IsExpired() bool {

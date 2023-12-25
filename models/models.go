@@ -6,13 +6,18 @@ type History struct {
 	Id int `json:"-"`
 }
 
+type User struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+	Surname  string `json:"surname"`
+}
+
 type Person struct {
 	Name       string `json:"name"`
 	Surname    string `json:"surname"`
 	Fathername string `json:"fathername"`
 	BioInfo    string `json:"bioInfo"`
-	Email      string `json:"email"`
-	Password   string `json:"password"`
 }
 
 type Owner struct {
@@ -55,8 +60,8 @@ const (
 )
 
 type Contact struct {
-	typeof ContactType
-	link   string
+	TypeOf ContactType `json:"typeOf"`
+	Link   string      `json:"link"`
 }
 
 type Brand struct {
