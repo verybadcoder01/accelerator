@@ -21,6 +21,7 @@ type Person struct {
 }
 
 type Owner struct {
+	Id   int       `json:"-"`
 	Per  Person    `json:"person"`
 	Hist []History `json:"history"`
 }

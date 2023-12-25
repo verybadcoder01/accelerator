@@ -138,4 +138,35 @@ func (s *Server) SetupRouting() {
 		}
 		return c.SendStatus(http.StatusOK)
 	})
+	s.conn.Post("/api/users/brands/edit", func(c *fiber.Ctx) error {
+		stoken, ok := c.GetReqHeaders()["Authorization"]
+		if ok != true {
+			return c.SendStatus(http.StatusBadRequest)
+		}
+		status, err := s.isSessionActive(stoken[0])
+		switch status {
+		case NOTFOUND:
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusBadRequest)
+		case EXPIRED:
+			err = s.scash.DeleteSession(stoken[0])
+			if err != nil {
+				s.log.Errorln(err)
+			}
+			return c.SendStatus(http.StatusForbidden)
+		}
+		var req models.Brand // just id, old values and new values in all fields that should be updated\
+		err = json.Unmarshal(c.Body(), &req)
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusBadRequest)
+		}
+		ctx := context.Background()
+		err = s.db.UpdateBrand(ctx, &req)
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		return c.SendStatus(http.StatusOK)
+	})
 }

@@ -29,7 +29,7 @@ func NewDb(dsn string, log *log.Logger) Database {
 }
 
 func (d *Database) CreateTables() error {
-	createBrand := `CREATE TABLE IF NOT EXISTS Brands(id SERIAL PRIMARY KEY, name VARCHAR(50), DESCRIPTION VARCHAR(200), city VARCHAR(50), is_open BOOLEAN)`
+	createBrand := `CREATE TABLE IF NOT EXISTS Brands(id SERIAL PRIMARY KEY, name VARCHAR(50) UNIQUE, DESCRIPTION VARCHAR(200), city VARCHAR(50), is_open BOOLEAN)`
 	createStats := `CREATE TABLE IF NOT EXISTS Statistics(id SERIAL PRIMARY KEY, start_time DATE, end_time DATE, name VARCHAR(50), description VARCHAR(200), value NUMERIC, brand_id INT, CONSTRAINT fk_statistics FOREIGN KEY(brand_id) REFERENCES Brands(id) ON DELETE CASCADE)`
 	createPrices := `CREATE TABLE IF NOT EXISTS Prices(id SERIAL PRIMARY KEY, low_end INT, high_end INT, currency VARCHAR(20))`
 	createProducts := `CREATE TABLE IF NOT EXISTS Products(id SERIAL PRIMARY KEY, name VARCHAR(50) UNIQUE, description VARCHAR(50), price_id INT, brand_id INT, CONSTRAINT fk_price_product FOREIGN KEY(price_id) REFERENCES Prices(id) ON DELETE CASCADE, CONSTRAINT fk_brand_product FOREIGN KEY(brand_id) REFERENCES Brands(id) ON DELETE CASCADE)`
@@ -399,6 +399,36 @@ func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
 		}
 	}
 	d.log.Debug("products added")
+	err = tx.Commit()
+	return err
+}
+
+func (d *Database) UpdateBrand(c context.Context, b *models.Brand) error {
+	ctx, cancel := context.WithCancel(c)
+	defer cancel()
+	var contactIds []int
+	getContactIds := `SELECT contact_id FROM l_brand_contacts WHERE brand_id = $1`
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	rows, err := d.db.Query(getContactIds, b.Id)
+	if err != nil {
+		return err
+	}
+	id := 0
+	for rows.Next() {
+		err = rows.Scan(&id)
+		if err != nil {
+			return err
+		}
+		contactIds = append(contactIds, id)
+	}
+	err = rows.Close()
+	if err != nil {
+		return err
+	}
+	// TODO: finish
 	err = tx.Commit()
 	return err
 }

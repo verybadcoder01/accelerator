@@ -89,7 +89,7 @@ func (b *Brand) GetBulkInsertStatementStatistics(core string) string {
 		core += " ("
 		core += "'" + strings.Split(b.Statistics[i].StartPeriod.Format(time.RFC3339), "T")[0] + "'" // RFC3339 is practically ISO 8601 + T<time>, and I only need ISO 8601
 		core += ", "
-		core += "'" + strings.Split(b.Statistics[i].StartPeriod.Format(time.RFC3339), "T")[0] + "'"
+		core += "'" + strings.Split(b.Statistics[i].EndPeriod.Format(time.RFC3339), "T")[0] + "'"
 		core += ", "
 		core += "'" + b.Statistics[i].Name + "'"
 		core += ", "
@@ -138,18 +138,6 @@ func (b *Brand) GetBulkInsertStatementProducts(core string, priceIds []int) stri
 		core = core[:len(core)-1]
 	}
 	return core
-}
-
-func (p *Product) GetPrice() Price {
-	return p.Price
-}
-
-func (p *Product) SetPrice(pr *Price) {
-	p.Price = *pr
-}
-
-func (o *Owner) SetPersonData(pr *Person) {
-	o.Per = *pr
 }
 
 func (c ContactType) String() string {
