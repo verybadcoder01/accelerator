@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -131,86 +132,103 @@ func (d *Database) getBrandContacts(brandId int) ([]models.Contact, error) {
 	return res, nil
 }
 
+func (d *Database) GetBrandIdByName(name string) (int, error) { // works because names are unique (see table definitions)
+	var res int
+	err := d.db.QueryRow(`SELECT id FROM brands WHERE name = $1`, name).Scan(&res)
+	if errors.Is(err, sql.ErrNoRows) {
+		return -1, nil
+	}
+	return res, err
+}
+
+func (d *Database) GetBrandById(id int) (models.Brand, error) {
+	var res models.Brand
+	getCore := `SELECT name, description, city FROM brands WHERE id = $1`
+	getProducts := `SELECT id, name, description, price_id FROM products WHERE brand_id = $1`
+	getStats := `SELECT id, name, description, start_time, end_time, value FROM statistics WHERE brand_id = $1`
+	getPrice := `SELECT low_end, high_end, currency FROM prices WHERE id = $1`
+	// get core info first
+	err := d.db.QueryRow(getCore, id).Scan(&res.Name, &res.Description, &res.Location)
+	if err != nil {
+		return res, err
+	}
+	// search for products
+	rows, err := d.db.Query(getProducts, id)
+	if err != nil {
+		return res, err
+	}
+	curPrice := models.Price{}
+	for rows.Next() {
+		p := models.Product{}
+		err = rows.Scan(&p.Id, &p.Name, &p.Description, &p.Price.Id)
+		if err != nil {
+			return res, err
+		}
+		err = d.db.QueryRow(getPrice, p.Price.Id).Scan(&curPrice.LowEnd, &curPrice.HighEnd, &curPrice.Currency)
+		if err != nil {
+			return res, err
+		}
+		p.Price.LowEnd = curPrice.LowEnd
+		p.Price.HighEnd = curPrice.HighEnd
+		p.Price.Currency = curPrice.Currency
+		// add one by one
+		res.AppendProduct(p)
+	}
+	err = rows.Close()
+	if err != nil {
+		return res, err
+	}
+	// add owners info
+	owners, err := d.getBrandOwners(id)
+	if err != nil {
+		return res, err
+	}
+	res.AppendOwner(owners...)
+	// add contacts info
+	contacts, err := d.getBrandContacts(id)
+	if err != nil {
+		return res, err
+	}
+	res.AppendContact(contacts...)
+	// search for stat info
+	rows, err = d.db.Query(getStats, id)
+	if err != nil {
+		return res, err
+	}
+	for rows.Next() {
+		stat := models.StatisticMeasure{}
+		err := rows.Scan(&stat.Id, &stat.Name, &stat.Description, &stat.StartPeriod, &stat.EndPeriod, &stat.Value)
+		if err != nil {
+			return res, err
+		}
+		// add one by one
+		res.AppendStat(stat)
+	}
+	err = rows.Close()
+	if err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
 func (d *Database) GetOpenBrands() ([]models.Brand, error) {
-	getOpen := `SELECT id, name, description, city, is_open FROM brands WHERE is_open=TRUE`
+	getOpen := `SELECT id FROM brands WHERE is_open=TRUE`
 	rows, err := d.db.Query(getOpen)
 	if err != nil {
 		return nil, err
 	}
-	var open []models.Brand
-	for rows.Next() {
-		cur := models.Brand{}
-		err = rows.Scan(&cur.Id, &cur.Name, &cur.Description, &cur.Location, &cur.IsOpen)
-		if err != nil {
-			return nil, err
-		}
-		open = append(open, cur)
-	}
-	d.log.Debug("scanned core info")
-	err = rows.Close()
+	openIds, err := d.collectIds(rows)
 	if err != nil {
 		return nil, err
 	}
-	getProducts := `SELECT id, name, description, price_id FROM products WHERE brand_id = $1`
-	getStats := `SELECT id, name, description, start_time, end_time, value FROM statistics WHERE brand_id = $1`
-	getPrice := `SELECT low_end, high_end, currency FROM prices WHERE id = $1`
-	for i, brand := range open {
+	var open []models.Brand
+	for _, brand := range openIds {
 		// search for products
-		rows, err = d.db.Query(getProducts, brand.GetId())
+		cur, err := d.GetBrandById(brand)
 		if err != nil {
 			return open, err
 		}
-		curPrice := models.Price{}
-		for rows.Next() {
-			p := models.Product{}
-			err = rows.Scan(&p.Id, &p.Name, &p.Description, &p.Price.Id)
-			if err != nil {
-				return open, err
-			}
-			err = d.db.QueryRow(getPrice, p.Price.Id).Scan(&curPrice.LowEnd, &curPrice.HighEnd, &curPrice.Currency)
-			if err != nil {
-				return open, err
-			}
-			p.Price.LowEnd = curPrice.LowEnd
-			p.Price.HighEnd = curPrice.HighEnd
-			p.Price.Currency = curPrice.Currency
-			// add one by one
-			open[i].AppendProduct(p)
-		}
-		err = rows.Close()
-		if err != nil {
-			return open, err
-		}
-		// add owners info
-		owners, err := d.getBrandOwners(brand.GetId())
-		if err != nil {
-			return open, err
-		}
-		open[i].AppendOwner(owners...)
-		// add contacts info
-		contacts, err := d.getBrandContacts(brand.GetId())
-		if err != nil {
-			return open, err
-		}
-		open[i].AppendContact(contacts...)
-		// search for stat info
-		rows, err = d.db.Query(getStats, brand.GetId())
-		if err != nil {
-			return open, err
-		}
-		for rows.Next() {
-			stat := models.StatisticMeasure{}
-			err := rows.Scan(&stat.Id, &stat.Name, &stat.Description, &stat.StartPeriod, &stat.EndPeriod, &stat.Value)
-			if err != nil {
-				return open, err
-			}
-			// add one by one
-			open[i].AppendStat(stat)
-		}
-		err = rows.Close()
-		if err != nil {
-			return open, err
-		}
+		open = append(open, cur)
 	}
 	return open, nil
 }
@@ -408,27 +426,123 @@ func (d *Database) UpdateBrand(c context.Context, b *models.Brand) error {
 	defer cancel()
 	var contactIds []int
 	getContactIds := `SELECT contact_id FROM l_brand_contacts WHERE brand_id = $1`
+	getOwnerIds := `SELECT owner_id FROM l_brand_owners WHERE brand_id = $1`
+	getPriceIds := `SELECT price_id FROM products WHERE brand_id = $1`
+	getProductIds := `SELECT id FROM products WHERE brand_id = $1`
+	getStatsIds := `SELECT id FROM statistics WHERE brand_id = $1`
+	updateCoreInfo := `UPDATE brands SET name = $1, description = $2, city = $3, is_open = $4 WHERE id = $5`
+	updateContacts := `UPDATE contacts as c SET type = vals.type, contact = vals.contact FROM (VALUES ?) AS vals(id, type, contact) WHERE vals.id = c.id`
+	updateOwners := `UPDATE owners as o SET name = vals.name, surname = vals.surname, fathername = vals.fathername, bio_info = vals.bio_info FROM (VALUES ?) AS vals(id, name, surname, fathername, bio_info) WHERE vals.id = o.id`
+	updatePrices := `UPDATE prices as p SET low_end = vals.low_end, high_end = vals.high_end, currency = vals.currency FROM (VALUES ?) AS vals(id, low_end, high_end, currency) WHERE vals.id = p.id`
+	updateProducts := `UPDATE products as p SET name = vals.name, description = vals.description FROM (VALUES ?) AS vals(id, name, description) WHERE vals.id = p.id`
+	updateStatistics := `UPDATE statistics as s SET start_time = vals.start_time, end_time = vals.end_time, name = vals.name, description = vals.description, value = vals.value  FROM (VALUES ?) AS vals(id, start_time, end_time, name, description, value) WHERE vals.id = s.id`
+	// transaction begins here
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	rows, err := d.db.Query(getContactIds, b.Id)
+	// update core info
+	_, err = tx.Exec(updateCoreInfo, b.Name, b.Description, b.Location, b.IsOpen, b.Id)
 	if err != nil {
 		return err
 	}
-	id := 0
-	for rows.Next() {
-		err = rows.Scan(&id)
+	// get contact ids for updating
+	rows, err := tx.Query(getContactIds, b.Id)
+	if err != nil {
+		return err
+	}
+	contactIds, err = d.collectIds(rows)
+	if err != nil {
+		return err
+	}
+	// for simplicity let's assume that...
+	if len(b.Contacts) != len(contactIds) {
+		return errors.New("insufficient update data: not all contacts are listed")
+	}
+	updateContacts = b.GetBulkUpdateStatementContacts(updateContacts, contactIds)
+	if len(b.Contacts) > 0 {
+		_, err = tx.Exec(updateContacts)
 		if err != nil {
 			return err
 		}
-		contactIds = append(contactIds, id)
 	}
-	err = rows.Close()
+	// moving on to owners
+	rows, err = tx.Query(getOwnerIds, b.Id)
 	if err != nil {
 		return err
 	}
-	// TODO: finish
+	ownerIds, err := d.collectIds(rows)
+	if err != nil {
+		return err
+	}
+	// again, we assume that
+	if len(b.Owners) != len(ownerIds) {
+		return errors.New("insufficient update data: not all owners are listed")
+	}
+	updateOwners = b.GetBulkUpdateStatementOwners(updateOwners, ownerIds)
+	if len(b.Owners) > 0 {
+		_, err = tx.Exec(updateOwners)
+		if err != nil {
+			return err
+		}
+	}
+	// now updating prices
+	rows, err = tx.Query(getPriceIds, b.Id)
+	if err != nil {
+		return err
+	}
+	priceIds, err := d.collectIds(rows)
+	if err != nil {
+		return err
+	}
+	// again, we need to have all information listed
+	if len(b.Products) != len(priceIds) {
+		return errors.New("insufficient update data: not all products are listed")
+	}
+	updatePrices = b.GetBulkUpdateStatementPrices(updatePrices, priceIds)
+	if len(b.Products) > 0 {
+		_, err = tx.Exec(updatePrices)
+		if err != nil {
+			return err
+		}
+	}
+	// update products now (done with prices)
+	rows, err = tx.Query(getProductIds, b.Id)
+	if err != nil {
+		return err
+	}
+	productIds, err := d.collectIds(rows)
+	if err != nil {
+		return err
+	}
+	updateProducts = b.GetBulkUpdateStatementProducts(updateProducts, productIds)
+	if len(b.Products) > 0 {
+		_, err = tx.Exec(updateProducts)
+		if err != nil {
+			return err
+		}
+	}
+	// now only thing left is to update statistics
+	rows, err = tx.Query(getStatsIds, b.Id)
+	if err != nil {
+		return err
+	}
+	statIds, err := d.collectIds(rows)
+	if err != nil {
+		return err
+	}
+	if len(b.Statistics) != len(statIds) {
+		return errors.New("insufficient update information: not all statistics measures are listed")
+	}
+	updateStatistics = b.GetBulkUpdateStatementStats(updateStatistics, statIds)
+	d.log.Debug(updateStatistics)
+	if len(b.Statistics) > 0 {
+		_, err = tx.Exec(updateStatistics)
+		if err != nil {
+			return err
+		}
+	}
+	// transaction committed, done
 	err = tx.Commit()
 	return err
 }

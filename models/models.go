@@ -66,11 +66,11 @@ type Contact struct {
 }
 
 type Brand struct {
-	Id          int                `json:"-"`
+	Id          int                `json:"id,omitempty"`
 	Name        string             `json:"name"`
 	Description string             `json:"description"`
 	Location    string             `json:"location"`
-	IsOpen      bool               `json:"-"`
+	IsOpen      bool               `json:"is_open,omitempty"`
 	Owners      []Owner            `json:"owners"`
 	Contacts    []Contact          `json:"contacts"`
 	Statistics  []StatisticMeasure `json:"statistics"`

@@ -169,4 +169,34 @@ func (s *Server) SetupRouting() {
 		}
 		return c.SendStatus(http.StatusOK)
 	})
+	s.conn.Get("/api/brands/get_brand_by_id", func(c *fiber.Ctx) error {
+		params, err := strconv.Atoi(c.Query("id", "1"))
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusBadRequest)
+		}
+		brand, err := s.db.GetBrandById(params)
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		marshal, err := json.Marshal(brand)
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		return c.Send(marshal)
+	})
+	s.conn.Get("/api/brands/get_brand_by_name", func(c *fiber.Ctx) error {
+		params := c.Query("name", "")
+		id, err := s.db.GetBrandIdByName(params)
+		if id == -1 {
+			return c.SendStatus(http.StatusBadRequest)
+		}
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		return c.SendString(strconv.Itoa(id))
+	})
 }

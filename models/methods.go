@@ -140,6 +140,110 @@ func (b *Brand) GetBulkInsertStatementProducts(core string, priceIds []int) stri
 	return core
 }
 
+func (b *Brand) GetBulkUpdateStatementContacts(core string, ids []int) string { // core will be like update ... from (values ?) as ... where ...
+	stmt := ""
+	for i := range b.Contacts {
+		stmt += " ("
+		stmt += strconv.Itoa(ids[i])
+		stmt += ","
+		stmt += "'" + b.Contacts[i].TypeOf.String() + "'"
+		stmt += ","
+		stmt += "'" + b.Contacts[i].Link + "'"
+		stmt += "),"
+	}
+	if len(b.Contacts) > 0 {
+		stmt = stmt[:len(stmt)-1]
+	}
+	core = strings.Replace(core, "?", stmt, 1)
+	return core
+}
+
+func (b *Brand) GetBulkUpdateStatementOwners(core string, ids []int) string { // same as in the function above
+	stmt := ""
+	for i := range b.Owners {
+		stmt += " ("
+		stmt += strconv.Itoa(ids[i])
+		stmt += ","
+		stmt += "'" + b.Owners[i].Per.Name + "'"
+		stmt += ","
+		stmt += "'" + b.Owners[i].Per.Surname + "'"
+		stmt += ","
+		stmt += "'" + b.Owners[i].Per.Fathername + "'"
+		stmt += ","
+		stmt += "'" + b.Owners[i].Per.BioInfo + "'"
+		stmt += "),"
+	}
+	if len(b.Owners) > 0 {
+		stmt = stmt[:len(stmt)-1]
+	}
+	core = strings.Replace(core, "?", stmt, 1)
+	return core
+}
+
+func (b *Brand) GetBulkUpdateStatementPrices(core string, ids []int) string { // same format as in update contacts
+	stmt := ""
+	for i := range b.Products {
+		stmt += " ("
+		stmt += strconv.Itoa(ids[i])
+		stmt += ","
+		stmt += strconv.Itoa(b.Products[i].Price.LowEnd)
+		stmt += ","
+		stmt += strconv.Itoa(b.Products[i].Price.HighEnd)
+		stmt += ","
+		stmt += "'" + b.Products[i].Price.Currency + "'"
+		stmt += "),"
+	}
+	if len(b.Products) > 0 {
+		stmt = stmt[:len(stmt)-1]
+	}
+	core = strings.Replace(core, "?", stmt, 1)
+	return core
+}
+
+func (b *Brand) GetBulkUpdateStatementProducts(core string, ids []int) string { // see format in the previous functions...
+	stmt := ""
+	for i := range b.Products {
+		stmt += " ("
+		stmt += strconv.Itoa(ids[i])
+		stmt += ","
+		stmt += "'" + b.Products[i].Name + "'"
+		stmt += ","
+		stmt += "'" + b.Products[i].Description + "'"
+		stmt += "),"
+	}
+	if len(b.Products) > 0 {
+		stmt = stmt[:len(stmt)-1]
+	}
+	core = strings.Replace(core, "?", stmt, 1)
+	return core
+}
+
+func (b *Brand) GetBulkUpdateStatementStats(core string, ids []int) string {
+	stmt := ""
+	for i := range b.Statistics {
+		stmt += " ("
+		stmt += strconv.Itoa(ids[i])
+		stmt += ","
+		stmt += "'" + strings.Split(b.Statistics[i].StartPeriod.Format(time.RFC3339), "T")[0] + "'" // as in insert, RFC3339 is basically ISO 8601 + T<time>, and I need only ISO
+		stmt += "::date"                                                                            // because it refuses to work otherwise
+		stmt += ","
+		stmt += "'" + strings.Split(b.Statistics[i].EndPeriod.Format(time.RFC3339), "T")[0] + "'"
+		stmt += "::date"
+		stmt += ","
+		stmt += "'" + b.Statistics[i].Name + "'"
+		stmt += ","
+		stmt += "'" + b.Statistics[i].Description + "'"
+		stmt += ","
+		stmt += strconv.FormatFloat(float64(b.Statistics[i].Value), 'f', -1, 32)
+		stmt += "),"
+	}
+	if len(b.Statistics) > 0 {
+		stmt = stmt[:len(stmt)-1]
+	}
+	core = strings.Replace(core, "?", stmt, 1)
+	return core
+}
+
 func (c ContactType) String() string {
 	switch c {
 	case _PHONE:
