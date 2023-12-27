@@ -299,45 +299,19 @@ func (d *Database) generateLinkTableStatement(coreStmt, bId string, ids []int) s
 	return coreStmt
 }
 
-// AddBrand this is awfully complex; the best way to refactor is by creating some complex object on pg side, maybe sometime in the future I will do it...
-func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
-	ctx, cancel := context.WithCancel(c)
-	defer cancel()
-	addCore := `INSERT INTO brands (name, description, city, is_open) VALUES ($1, $2, $3, $4) RETURNING id`
+// addAllInfoAfterCore this is really complex. I don't really know how to refactor it without using a lot of reflection
+// it is also basically a helper function for 2 below it; operates within a given transaction
+func (d *Database) addAllInfoAfterCore(tx *sql.Tx, b *models.Brand) error {
 	addContacts := `INSERT INTO contacts (type, contact) VALUES`
 	addContacts = b.GetBulkInsertStatementContacts(addContacts)
 	addContacts += ` RETURNING id`
 	addOwners := `INSERT INTO owners (name, surname, fathername, bio_info) VALUES`
 	addOwners = b.GetBulkInsertStatementOwners(addOwners)
 	addOwners += `RETURNING id`
-
-	tx, err := d.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	// add core brand info
-	rows, err := tx.Query(addCore, b.Name, b.Description, b.Location, b.IsOpen) // pq disables LastInsertId feature, unfortunately
-	if err != nil {
-		return err
-	}
-	id := 0
-	for rows.Next() {
-		err = rows.Scan(&id)
-		if err != nil {
-			_ = rows.Close()
-			return err
-		}
-	}
-	err = rows.Close()
-	if err != nil {
-		return err
-	}
-	b.Id = id
 	strId := strconv.Itoa(b.Id)
-	d.log.Debug("brand added")
 	// working with contacts here, add them, add mtm links
 	if len(b.Contacts) > 0 {
-		rows, err = tx.Query(addContacts)
+		rows, err := tx.Query(addContacts)
 		if err != nil {
 			return err
 		}
@@ -362,7 +336,7 @@ func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
 	// working with owners here, add them, add mtm links
 	if len(b.Owners) > 0 {
 		d.log.Debug(addOwners)
-		rows, err = tx.Query(addOwners)
+		rows, err := tx.Query(addOwners)
 		if err != nil {
 			return err
 		}
@@ -386,7 +360,7 @@ func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
 	addStatistics = b.GetBulkInsertStatementStatistics(addStatistics)
 	if len(b.Statistics) > 0 {
 		d.log.Debug(addStatistics)
-		_, err = tx.Exec(addStatistics)
+		_, err := tx.Exec(addStatistics)
 		if err != nil {
 			return err
 		}
@@ -399,7 +373,7 @@ func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
 	if len(b.Products) > 0 {
 		// add prices
 		d.log.Debug(addPrices)
-		rows, err = tx.Query(addPrices)
+		rows, err := tx.Query(addPrices)
 		if err != nil {
 			return err
 		}
@@ -417,130 +391,64 @@ func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
 		}
 	}
 	d.log.Debug("products added")
-	err = tx.Commit()
-	return err
+	return nil
 }
 
-func (d *Database) UpdateBrand(c context.Context, b *models.Brand) error {
+// AddBrand adds a completely new brand using a transaction
+func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
-	var contactIds []int
-	getContactIds := `SELECT contact_id FROM l_brand_contacts WHERE brand_id = $1`
-	getOwnerIds := `SELECT owner_id FROM l_brand_owners WHERE brand_id = $1`
-	getPriceIds := `SELECT price_id FROM products WHERE brand_id = $1`
-	getProductIds := `SELECT id FROM products WHERE brand_id = $1`
-	getStatsIds := `SELECT id FROM statistics WHERE brand_id = $1`
-	updateCoreInfo := `UPDATE brands SET name = $1, description = $2, city = $3, is_open = $4 WHERE id = $5`
-	updateContacts := `UPDATE contacts as c SET type = vals.type, contact = vals.contact FROM (VALUES ?) AS vals(id, type, contact) WHERE vals.id = c.id`
-	updateOwners := `UPDATE owners as o SET name = vals.name, surname = vals.surname, fathername = vals.fathername, bio_info = vals.bio_info FROM (VALUES ?) AS vals(id, name, surname, fathername, bio_info) WHERE vals.id = o.id`
-	updatePrices := `UPDATE prices as p SET low_end = vals.low_end, high_end = vals.high_end, currency = vals.currency FROM (VALUES ?) AS vals(id, low_end, high_end, currency) WHERE vals.id = p.id`
-	updateProducts := `UPDATE products as p SET name = vals.name, description = vals.description FROM (VALUES ?) AS vals(id, name, description) WHERE vals.id = p.id`
-	updateStatistics := `UPDATE statistics as s SET start_time = vals.start_time, end_time = vals.end_time, name = vals.name, description = vals.description, value = vals.value  FROM (VALUES ?) AS vals(id, start_time, end_time, name, description, value) WHERE vals.id = s.id`
-	// transaction begins here
+	addCore := `INSERT INTO brands (name, description, city, is_open) VALUES ($1, $2, $3, $4) RETURNING id`
+	// transaction starts here
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	// update core info
+	// add core brand info
+	id := 0
+	err = tx.QueryRow(addCore, b.Name, b.Description, b.Location, b.IsOpen).Scan(&id) // pq disables LastInsertId feature, unfortunately
+	if err != nil {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	b.Id = id
+	d.log.Debug("brand added")
+	err = d.addAllInfoAfterCore(tx, b)
+	if err != nil {
+		return err
+	}
+	err = tx.Commit()
+	return err
+}
+
+// UpdateBrand by update I mean basically delete all old data and insert new. Only the core info is really updated, to preserve the id number
+func (d *Database) UpdateBrand(c context.Context, b *models.Brand) error {
+	ctx, cancel := context.WithCancel(c)
+	defer cancel()
+	updateCoreInfo := `UPDATE brands SET name = $1, description = $2, city = $3, is_open = $4 WHERE id = $5`
+	deleteOldOwners := `DELETE FROM owners WHERE id IN (SELECT owner_id FROM l_brand_owners WHERE brand_id = $1)`
+	deleteOldPrices := `DELETE FROM prices WHERE id IN (SELECT price_id FROM products WHERE brand_id = $1)`
+	deleteOldProducts := `DELETE FROM products WHERE brand_id = $1`
+	deleteOldStats := `DELETE FROM statistics WHERE brand_id = $1`
+	deleteOldContacts := `DELETE FROM contacts WHERE id IN (SELECT contact_id FROM l_brand_contacts WHERE brand_id = $1)`
+	// transaction begins here
+	tx, err := d.db.BeginTx(ctx, nil)
 	_, err = tx.Exec(updateCoreInfo, b.Name, b.Description, b.Location, b.IsOpen, b.Id)
 	if err != nil {
 		return err
 	}
-	// get contact ids for updating
-	rows, err := tx.Query(getContactIds, b.Id)
-	if err != nil {
-		return err
-	}
-	contactIds, err = d.collectIds(rows)
-	if err != nil {
-		return err
-	}
-	// for simplicity let's assume that...
-	if len(b.Contacts) != len(contactIds) {
-		return errors.New("insufficient update data: not all contacts are listed")
-	}
-	updateContacts = b.GetBulkUpdateStatementContacts(updateContacts, contactIds)
-	if len(b.Contacts) > 0 {
-		_, err = tx.Exec(updateContacts)
+	delList := []string{deleteOldOwners, deleteOldContacts, deleteOldPrices, deleteOldProducts, deleteOldStats}
+	for _, st := range delList {
+		_, err = tx.Exec(st, b.Id)
 		if err != nil {
 			return err
 		}
 	}
-	// moving on to owners
-	rows, err = tx.Query(getOwnerIds, b.Id)
+	err = d.addAllInfoAfterCore(tx, b)
 	if err != nil {
 		return err
-	}
-	ownerIds, err := d.collectIds(rows)
-	if err != nil {
-		return err
-	}
-	// again, we assume that
-	if len(b.Owners) != len(ownerIds) {
-		return errors.New("insufficient update data: not all owners are listed")
-	}
-	updateOwners = b.GetBulkUpdateStatementOwners(updateOwners, ownerIds)
-	if len(b.Owners) > 0 {
-		_, err = tx.Exec(updateOwners)
-		if err != nil {
-			return err
-		}
-	}
-	// now updating prices
-	rows, err = tx.Query(getPriceIds, b.Id)
-	if err != nil {
-		return err
-	}
-	priceIds, err := d.collectIds(rows)
-	if err != nil {
-		return err
-	}
-	// again, we need to have all information listed
-	if len(b.Products) != len(priceIds) {
-		return errors.New("insufficient update data: not all products are listed")
-	}
-	updatePrices = b.GetBulkUpdateStatementPrices(updatePrices, priceIds)
-	if len(b.Products) > 0 {
-		_, err = tx.Exec(updatePrices)
-		if err != nil {
-			return err
-		}
-	}
-	// update products now (done with prices)
-	rows, err = tx.Query(getProductIds, b.Id)
-	if err != nil {
-		return err
-	}
-	productIds, err := d.collectIds(rows)
-	if err != nil {
-		return err
-	}
-	updateProducts = b.GetBulkUpdateStatementProducts(updateProducts, productIds)
-	if len(b.Products) > 0 {
-		_, err = tx.Exec(updateProducts)
-		if err != nil {
-			return err
-		}
-	}
-	// now only thing left is to update statistics
-	rows, err = tx.Query(getStatsIds, b.Id)
-	if err != nil {
-		return err
-	}
-	statIds, err := d.collectIds(rows)
-	if err != nil {
-		return err
-	}
-	if len(b.Statistics) != len(statIds) {
-		return errors.New("insufficient update information: not all statistics measures are listed")
-	}
-	updateStatistics = b.GetBulkUpdateStatementStats(updateStatistics, statIds)
-	d.log.Debug(updateStatistics)
-	if len(b.Statistics) > 0 {
-		_, err = tx.Exec(updateStatistics)
-		if err != nil {
-			return err
-		}
 	}
 	// transaction committed, done
 	err = tx.Commit()
