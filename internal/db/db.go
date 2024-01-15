@@ -15,6 +15,8 @@ import (
 
 const BcryptCost = 5
 
+var ERRNOPERM = errors.New("this user doesn't have permission to update")
+
 type Database struct {
 	db  *sql.DB
 	log *log.Logger
@@ -30,7 +32,7 @@ func NewDb(dsn string, log *log.Logger) Database {
 }
 
 func (d *Database) CreateTables() error {
-	createBrand := `CREATE TABLE IF NOT EXISTS Brands(id SERIAL PRIMARY KEY, name VARCHAR(50) UNIQUE, DESCRIPTION VARCHAR(200), city VARCHAR(50), is_open BOOLEAN)`
+	createBrand := `CREATE TABLE IF NOT EXISTS Brands(id SERIAL PRIMARY KEY, name VARCHAR(50) UNIQUE, DESCRIPTION VARCHAR(200), city VARCHAR(50), is_open BOOLEAN, added_by INT, constraint fk_user_id FOREIGN KEY (added_by) REFERENCES users(id) ON DELETE SET NULL)`
 	createStats := `CREATE TABLE IF NOT EXISTS Statistics(id SERIAL PRIMARY KEY, start_time DATE, end_time DATE, name VARCHAR(50), description VARCHAR(200), value NUMERIC, brand_id INT, CONSTRAINT fk_statistics FOREIGN KEY(brand_id) REFERENCES Brands(id) ON DELETE CASCADE)`
 	createPrices := `CREATE TABLE IF NOT EXISTS Prices(id SERIAL PRIMARY KEY, low_end INT, high_end INT, currency VARCHAR(20))`
 	createProducts := `CREATE TABLE IF NOT EXISTS Products(id SERIAL PRIMARY KEY, name VARCHAR(50) UNIQUE, description VARCHAR(50), price_id INT, brand_id INT, CONSTRAINT fk_price_product FOREIGN KEY(price_id) REFERENCES Prices(id) ON DELETE CASCADE, CONSTRAINT fk_brand_product FOREIGN KEY(brand_id) REFERENCES Brands(id) ON DELETE CASCADE)`
@@ -41,10 +43,10 @@ func (d *Database) CreateTables() error {
 	createLOBrand := `CREATE TABLE IF NOT EXISTS L_Brand_Owners(id SERIAL PRIMARY KEY, brand_id INT, owner_id INT, CONSTRAINT fk_link_owners FOREIGN KEY(brand_id) REFERENCES Brands(id) ON DELETE CASCADE, CONSTRAINT fk_owner_id FOREIGN KEY(owner_id) REFERENCES Owners(id) ON DELETE CASCADE)`
 	createUsers := `CREATE TABLE IF NOT EXISTS users(id SERIAL PRIMARY KEY, email VARCHAR(50) UNIQUE, password VARCHAR(200), name VARCHAR(50), surname VARCHAR(50))`
 	execList := []string{
+		createUsers,
 		createBrand, createStats, createPrices, createProducts, createContacts, createLinkCBrand, createHistory,
 		createOwners,
 		createLOBrand,
-		createUsers,
 	}
 	for _, st := range execList {
 		_, err := d.db.Exec(st)
@@ -249,6 +251,19 @@ func (d *Database) InsertOwner(o models.Owner) error {
 	return err
 }
 
+func (d *Database) GetIdByEmail(mail string) (int, error) {
+	getId := `SELECT id FROM users WHERE email = $1`
+	rows, err := d.db.Query(getId, mail)
+	if err != nil {
+		return -1, err
+	}
+	ids, err := d.collectIds(rows)
+	if err != nil {
+		return 0, err
+	}
+	return ids[0], nil
+}
+
 func (d *Database) GetPasswordByEmail(mail string) (string, error) {
 	getPassword := `SELECT password FROM users WHERE email = $1`
 	rows, err := d.db.Query(getPassword, mail)
@@ -395,10 +410,11 @@ func (d *Database) addAllInfoAfterCore(tx *sql.Tx, b *models.Brand) error {
 }
 
 // AddBrand adds a completely new brand using a transaction
-func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
+func (d *Database) AddBrand(c context.Context, b *models.Brand, addedBy string) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
-	addCore := `INSERT INTO brands (name, description, city, is_open) VALUES ($1, $2, $3, $4) RETURNING id`
+	addCore := `INSERT INTO brands (name, description, city, is_open, added_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`
+	uid, err := d.GetIdByEmail(addedBy)
 	// transaction starts here
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -406,7 +422,7 @@ func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
 	}
 	// add core brand info
 	id := 0
-	err = tx.QueryRow(addCore, b.Name, b.Description, b.Location, b.IsOpen).Scan(&id) // pq disables LastInsertId feature, unfortunately
+	err = tx.QueryRow(addCore, b.Name, b.Description, b.Location, b.IsOpen, uid).Scan(&id) // pq disables LastInsertId feature, unfortunately
 	if err != nil {
 		return err
 	}
@@ -424,9 +440,24 @@ func (d *Database) AddBrand(c context.Context, b *models.Brand) error {
 }
 
 // UpdateBrand by update I mean basically delete all old data and insert new. Only the core info is really updated, to preserve the id number
-func (d *Database) UpdateBrand(c context.Context, b *models.Brand) error {
+func (d *Database) UpdateBrand(c context.Context, b *models.Brand, updatedBy string) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
+	// let's check who's trying to update
+	uid, err := d.GetIdByEmail(updatedBy)
+	if err != nil {
+		return err
+	}
+	var added int
+	getBrandCreator := `SELECT added_by FROM brands WHERE id = $1`
+	err = d.db.QueryRow(getBrandCreator, b.Id).Scan(&added)
+	if err != nil {
+		return err
+	}
+	// user doesn't have permission to do this
+	if uid != added {
+		return ERRNOPERM
+	}
 	updateCoreInfo := `UPDATE brands SET name = $1, description = $2, city = $3, is_open = $4 WHERE id = $5`
 	deleteOldOwners := `DELETE FROM owners WHERE id IN (SELECT owner_id FROM l_brand_owners WHERE brand_id = $1)`
 	deleteOldPrices := `DELETE FROM prices WHERE id IN (SELECT price_id FROM products WHERE brand_id = $1)`
@@ -453,4 +484,29 @@ func (d *Database) UpdateBrand(c context.Context, b *models.Brand) error {
 	// transaction committed, done
 	err = tx.Commit()
 	return err
+}
+
+func (d *Database) GetBrandsAddedByUser(email string) ([]models.Brand, error) {
+	uid, err := d.GetIdByEmail(email)
+	if err != nil {
+		return nil, err
+	}
+	getBIds := `SELECT id FROM brands WHERE added_by = $1`
+	rows, err := d.db.Query(getBIds, uid)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := d.collectIds(rows)
+	if err != nil {
+		return nil, err
+	}
+	var res []models.Brand
+	for _, id := range ids {
+		brand, err := d.GetBrandById(id)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, brand)
+	}
+	return res, nil
 }

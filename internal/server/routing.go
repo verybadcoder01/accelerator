@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
+	"accelerator/internal/db"
 	"accelerator/internal/session"
 	"accelerator/models"
 	"github.com/gofiber/fiber/v2"
@@ -126,7 +128,11 @@ func (s *Server) SetupRouting() {
 		}
 		req.IsOpen = true
 		ctx := context.Background()
-		err = s.db.AddBrand(ctx, &req)
+		ses, err := s.scash.FindSession(stoken[0])
+		if err != nil {
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		err = s.db.AddBrand(ctx, &req, ses.Email)
 		if err != nil {
 			s.log.Errorln(err)
 			return c.SendStatus(http.StatusInternalServerError)
@@ -157,7 +163,15 @@ func (s *Server) SetupRouting() {
 			return c.SendStatus(http.StatusBadRequest)
 		}
 		ctx := context.Background()
-		err = s.db.UpdateBrand(ctx, &req)
+		ses, err := s.scash.FindSession(stoken[0])
+		if err != nil {
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		err = s.db.UpdateBrand(ctx, &req, ses.Email)
+		if errors.Is(err, db.ERRNOPERM) {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusForbidden)
+		}
 		if err != nil {
 			s.log.Errorln(err)
 			return c.SendStatus(http.StatusInternalServerError)
@@ -193,5 +207,39 @@ func (s *Server) SetupRouting() {
 			return c.SendStatus(http.StatusInternalServerError)
 		}
 		return c.SendString(strconv.Itoa(id))
+	})
+	s.conn.Get("/api/users/get_added_brands", func(c *fiber.Ctx) error {
+		token, ok := c.GetReqHeaders()["Authorization"]
+		if ok == false {
+			return c.SendStatus(http.StatusForbidden)
+		}
+		status, err := s.isSessionActive(token[0])
+		switch status {
+		case NOTFOUND:
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusBadRequest)
+		case EXPIRED:
+			err = s.scash.DeleteSession(token[0])
+			if err != nil {
+				s.log.Errorln(err)
+			}
+			return c.SendStatus(http.StatusForbidden)
+		}
+		ses, err := s.scash.FindSession(token[0])
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		res, err := s.db.GetBrandsAddedByUser(ses.Email)
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		marshal, err := json.Marshal(&res)
+		if err != nil {
+			s.log.Errorln(err)
+			return c.SendStatus(http.StatusInternalServerError)
+		}
+		return c.Send(marshal)
 	})
 }
