@@ -87,14 +87,17 @@ func (s *Server) SetupRouting() {
 		return c.Send(marshal)
 	})
 	s.conn.Get("/api/users/checklogin", func(c *fiber.Ctx) error {
-		req := c.GetReqHeaders()["Authorization"][0]
-		status, err := s.isSessionActive(req)
+		req, ok := c.GetReqHeaders()["Authorization"]
+		if ok == false {
+			return c.SendString("false")
+		}
+		status, err := s.isSessionActive(req[0])
 		switch status {
 		case NOTFOUND:
 			s.log.Errorln(err)
 			return c.SendStatus(http.StatusBadRequest)
 		case EXPIRED:
-			err = s.scash.DeleteSession(req)
+			err = s.scash.DeleteSession(req[0])
 			if err != nil {
 				s.log.Errorln(err)
 			}

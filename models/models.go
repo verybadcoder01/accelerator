@@ -43,10 +43,11 @@ type Price struct {
 }
 
 type Product struct {
-	Id          int    `json:"-"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Price       Price  `json:"price"`
+	Id          int      `json:"-"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Price       Price    `json:"price"`
+	Media       []string `json:"images"`
 }
 
 type ContactType int

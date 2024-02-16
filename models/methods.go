@@ -1,9 +1,15 @@
 package models
 
 import (
+	"bytes"
+	"encoding/base64"
+	"image"
+	"image/png"
 	"strconv"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func NewOwner(per *Person) Owner {
@@ -31,6 +37,29 @@ func NewContactType(s string) ContactType {
 
 func NewContact(typeof string, link string) Contact {
 	return Contact{TypeOf: NewContactType(typeof), Link: link}
+}
+
+func (p *Product) GetImages(l *log.Logger) []image.Image {
+	res := make([]image.Image, len(p.Media))
+	for i, img := range p.Media {
+		byteImg := []byte(strings.Split(img, ",")[1])
+		l.Debug("attempting to decode image")
+		byteArr := make([]byte, len(byteImg))
+		// decode from base64
+		_, err := base64.StdEncoding.Decode(byteArr, byteImg)
+		if err != nil {
+			l.Errorln(err)
+		}
+		// parse image
+		curimg, err := png.Decode(bytes.NewReader(byteArr))
+		// for now, we only allow png
+		if err != nil {
+			l.Errorln("decoder err: " + err.Error())
+			continue
+		}
+		res[i] = curimg
+	}
+	return res
 }
 
 func (b *Brand) GetId() int {

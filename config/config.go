@@ -16,6 +16,7 @@ type Config struct {
 	SessionCashPath string `yaml:"session_cash_path"`
 	CashUser        string `yaml:"cash_user"`
 	CashPassword    string `yaml:"cash_password"`
+	MediaDir        string `yaml:"media_dir"`
 }
 
 func ParseConfig(path string) (Config, error) {

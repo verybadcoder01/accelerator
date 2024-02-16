@@ -2,6 +2,7 @@ package main
 
 import (
 	db "accelerator/internal/db"
+	"accelerator/internal/mediaworker"
 	"accelerator/internal/server"
 	"accelerator/internal/sessioncash"
 	"accelerator/logging"
@@ -18,7 +19,8 @@ func main() {
 	}
 	logger := logging.SetupLogging(conf.LogPath, conf.LogLevel)
 	logger.Infoln("Here we go")
-	dconn := db.NewDb(conf.DbPath, logger)
+	worker := mediaworker.NewMediaWorker(conf.MediaDir, 0)
+	dconn := db.NewDb(conf.DbPath, worker, logger)
 	err = dconn.CreateTables()
 	if err != nil {
 		log.Fatal(err)

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	fileWorker "accelerator/internal/mediaworker"
 	"accelerator/models"
 	_ "github.com/lib/pq"
 	log "github.com/sirupsen/logrus"
@@ -18,17 +19,18 @@ const BcryptCost = 5
 var ERRNOPERM = errors.New("this user doesn't have permission to update")
 
 type Database struct {
-	db  *sql.DB
-	log *log.Logger
+	db         *sql.DB
+	fileWorker fileWorker.MediaWorker
+	log        *log.Logger
 }
 
-func NewDb(dsn string, log *log.Logger) Database {
+func NewDb(dsn string, worker fileWorker.MediaWorker, log *log.Logger) Database {
 	conn, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Errorln(err)
 		return Database{}
 	}
-	return Database{db: conn, log: log}
+	return Database{db: conn, fileWorker: worker, log: log}
 }
 
 func (d *Database) CreateTables() error {
@@ -42,11 +44,13 @@ func (d *Database) CreateTables() error {
 	createOwners := `CREATE TABLE IF NOT EXISTS Owners(id SERIAL PRIMARY KEY, name VARCHAR(20), surname VARCHAR(50), fathername VARCHAR(50), bio_info VARCHAR(200), history_id INT, CONSTRAINT fk_history_id FOREIGN KEY (history_id) REFERENCES History(id))`
 	createLOBrand := `CREATE TABLE IF NOT EXISTS L_Brand_Owners(id SERIAL PRIMARY KEY, brand_id INT, owner_id INT, CONSTRAINT fk_link_owners FOREIGN KEY(brand_id) REFERENCES Brands(id) ON DELETE CASCADE, CONSTRAINT fk_owner_id FOREIGN KEY(owner_id) REFERENCES Owners(id) ON DELETE CASCADE)`
 	createUsers := `CREATE TABLE IF NOT EXISTS users(id SERIAL PRIMARY KEY, email VARCHAR(50) UNIQUE, password VARCHAR(200), name VARCHAR(50), surname VARCHAR(50))`
+	createMedia := `CREATE TABLE IF NOT EXISTS media(id SERIAL PRIMARY KEY, path varchar(50), product_id INT, CONSTRAINT fk_photo_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE)`
 	execList := []string{
 		createUsers,
 		createBrand, createStats, createPrices, createProducts, createContacts, createLinkCBrand, createHistory,
 		createOwners,
 		createLOBrand,
+		createMedia,
 	}
 	for _, st := range execList {
 		_, err := d.db.Exec(st)
@@ -149,6 +153,7 @@ func (d *Database) GetBrandById(id int) (models.Brand, error) {
 	getProducts := `SELECT id, name, description, price_id FROM products WHERE brand_id = $1`
 	getStats := `SELECT id, name, description, start_time, end_time, value FROM statistics WHERE brand_id = $1`
 	getPrice := `SELECT low_end, high_end, currency FROM prices WHERE id = $1`
+	getMedia := `SELECT path FROM media WHERE product_id = $1`
 	// get core info first
 	err := d.db.QueryRow(getCore, id).Scan(&res.Name, &res.Description, &res.Location)
 	if err != nil {
@@ -173,6 +178,27 @@ func (d *Database) GetBrandById(id int) (models.Brand, error) {
 		p.Price.LowEnd = curPrice.LowEnd
 		p.Price.HighEnd = curPrice.HighEnd
 		p.Price.Currency = curPrice.Currency
+		// query for media with same product_id
+		rowsMedia, err := d.db.Query(getMedia, p.Id)
+		if err != nil {
+			return res, err
+		}
+		for rowsMedia.Next() {
+			var path string
+			err = rowsMedia.Scan(&path)
+			if err != nil {
+				_ = rowsMedia.Close()
+				return res, err
+			}
+			// fetch file from dist
+			file, err := d.fileWorker.LoadFile(path)
+			if err != nil {
+				_ = rowsMedia.Close()
+				return res, err
+			}
+			p.Media = append(p.Media, "data:image/jpeg;base64,"+fileWorker.ImageToString(file))
+		}
+		_ = rowsMedia.Close()
 		// add one by one
 		res.AppendProduct(p)
 	}
@@ -314,6 +340,58 @@ func (d *Database) generateLinkTableStatement(coreStmt, bId string, ids []int) s
 	return coreStmt
 }
 
+// addProducts adds products of the given brand. Operates within the transaction
+func (d *Database) addProducts(tx *sql.Tx, b *models.Brand) error {
+	addPrices := `INSERT INTO prices (low_end, high_end, currency) VALUES`
+	addPrices = b.GetBulkInsertStatementPrices(addPrices)
+	addPrices += ` RETURNING Id`
+	// add prices
+	d.log.Debug(addPrices)
+	rows, err := tx.Query(addPrices)
+	if err != nil {
+		return err
+	}
+	// get their ids
+	ids, err := d.collectIds(rows)
+	if err != nil {
+		return err
+	}
+	addProducts := `INSERT INTO products (name, description, price_id, brand_id) VALUES`
+	addProducts = b.GetBulkInsertStatementProducts(addProducts, ids)
+	addProducts += ` RETURNING id`
+	// add product info
+	d.log.Debug(addProducts)
+	rows, err = tx.Query(addProducts)
+	if err != nil {
+		return err
+	}
+	// now to insert photos
+	ids, err = d.collectIds(rows)
+	if err != nil {
+		return err
+	}
+	addImage := `INSERT INTO media (path, product_id) VALUES ($1, $2)`
+	// iterate over all products
+	for i, p := range b.Products {
+		for _, img := range p.GetImages(d.log) {
+			// first we save
+			d.log.Debug("attempting to save image")
+			path, err := d.fileWorker.SaveFile(img)
+			d.log.Debug("image saved")
+			if err != nil {
+				return err
+			}
+			// and save to db
+			d.log.Debug(addImage, ids[i])
+			_, err = tx.Exec(addImage, path, ids[i])
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // addAllInfoAfterCore this is really complex. I don't really know how to refactor it without using a lot of reflection
 // it is also basically a helper function for 2 below it; operates within a given transaction
 func (d *Database) addAllInfoAfterCore(tx *sql.Tx, b *models.Brand) error {
@@ -382,25 +460,8 @@ func (d *Database) addAllInfoAfterCore(tx *sql.Tx, b *models.Brand) error {
 	}
 	d.log.Debug("statistics added")
 	// now add products...
-	addPrices := `INSERT INTO prices (low_end, high_end, currency) VALUES`
-	addPrices = b.GetBulkInsertStatementPrices(addPrices)
-	addPrices += ` RETURNING Id`
 	if len(b.Products) > 0 {
-		// add prices
-		d.log.Debug(addPrices)
-		rows, err := tx.Query(addPrices)
-		if err != nil {
-			return err
-		}
-		// get their ids
-		ids, err := d.collectIds(rows)
-		if err != nil {
-			return err
-		}
-		addProducts := `INSERT INTO products (name, description, price_id, brand_id) VALUES`
-		addProducts = b.GetBulkInsertStatementProducts(addProducts, ids)
-		// finally
-		_, err = tx.Exec(addProducts)
+		err := d.addProducts(tx, b)
 		if err != nil {
 			return err
 		}
