@@ -5,8 +5,13 @@ import (
 	"encoding/base64"
 	"image"
 	"image/jpeg"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type MediaWorker interface {
@@ -19,12 +24,26 @@ type SimpleFileWorker struct {
 	lastInd int
 }
 
-func NewMediaWorker(fileDir string, lastInd int) MediaWorker {
-	return &SimpleFileWorker{fileDir: fileDir, lastInd: lastInd}
+func NewMediaWorker(fileDir string) MediaWorker {
+	mxInd := -1
+	err := filepath.Walk(fileDir, func(path string, info fs.FileInfo, err error) error {
+		if info.IsDir() == false {
+			inds := strings.Split(info.Name(), ".")[0]
+			ind, _ := strconv.Atoi(inds)
+			if ind > mxInd {
+				mxInd = ind
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Fatal("cant init file saver")
+	}
+	return &SimpleFileWorker{fileDir: fileDir, lastInd: mxInd + 1}
 }
 
-func (s SimpleFileWorker) SaveFile(img image.Image) (string, error) {
-	path := s.fileDir + string(os.PathSeparator) + strconv.Itoa(s.lastInd+1) + ".jpeg"
+func (s *SimpleFileWorker) SaveFile(img image.Image) (string, error) {
+	path := s.fileDir + string(os.PathSeparator) + strconv.Itoa(s.lastInd) + ".jpeg"
 	file, err := os.Create(path)
 	defer func() { _ = file.Close() }()
 	if err != nil {
@@ -38,7 +57,7 @@ func (s SimpleFileWorker) SaveFile(img image.Image) (string, error) {
 	return path, nil
 }
 
-func (s SimpleFileWorker) LoadFile(path string) (image.Image, error) {
+func (s *SimpleFileWorker) LoadFile(path string) (image.Image, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY, 0666)
 	defer func() { _ = file.Close() }()
 	if err != nil {

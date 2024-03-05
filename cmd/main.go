@@ -19,7 +19,7 @@ func main() {
 	}
 	logger := logging.SetupLogging(conf.LogPath, conf.LogLevel)
 	logger.Infoln("Here we go")
-	worker := mediaworker.NewMediaWorker(conf.MediaDir, 0)
+	worker := mediaworker.NewMediaWorker(conf.MediaDir)
 	dconn := db.NewDb(conf.DbPath, worker, logger)
 	err = dconn.CreateTables()
 	if err != nil {
